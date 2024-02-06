@@ -1,0 +1,220 @@
+<html>
+  <head>
+    <title>SSH Terminal</title>
+    <link
+      rel="stylesheet"
+      href="/node_modules/bootstrap/dist/css/bootstrap.min.css"
+    />
+    <link rel="stylesheet" href="/node_modules/xterm/dist/xterm.css" />
+    <script src="/node_modules/es6-promise/dist/es6-promise.auto.min.js"></script>
+    <script src="/node_modules/xterm/dist/xterm.js"></script>
+    <script src="/node_modules/ansi-escapes/index.js"></script>
+    <script src="/node_modules/xterm/dist/addons/fit/fit.js"></script>
+    <script src="/node_modules/xterm/dist/addons/attach/attach.js"></script>
+    <script src="/node_modules/xterm/dist/addons/fullscreen/fullscreen.js"></script>
+    <script src="/node_modules/xterm/dist/addons/search/search.js"></script>
+    <script src="/node_modules/xterm/dist/addons/webLinks/webLinks.js"></script>
+    <script src="socket.io/socket.io.js"></script>
+    <script>
+      window.addEventListener(
+        "load",
+        function() {
+          Terminal.applyAddon(attach);
+          Terminal.applyAddon(fit);
+          Terminal.applyAddon(search);
+          Terminal.applyAddon(fullscreen);
+          Terminal.applyAddon(webLinks);
+          var terminalContainer = document.getElementById("terminal-container");
+          var term = new Terminal({
+            cursorBlink: true,
+            fontSize: 11,
+            scrollback: 9999999,
+            cols: Math.floor(terminalContainer.clientWidth / 7.5),
+            rows: Math.floor(terminalContainer.clientHeight / 12.5)
+          });
+
+          term.open(terminalContainer);
+
+          var auser = document.getElementById("auser");
+          var apass = document.getElementById("apass");
+          var sendUser = document.getElementById("sendUser");
+          var sendEn = document.getElementById("sendEn");
+
+          var url = location.href;
+          var urlnode = new URL(url).searchParams.get("nodeip");
+          var urluser = new URL(url).searchParams.get("nodeuser");
+          var unknown = "unknown user won't auto login";
+          var ip = urlnode != null || urlnode != "" ? urlnode : "a node";
+          var user = urluser.replace("ssh", "").replace("telnet", "");
+          var uservalidation = user == "" || user == null ? unknown : user;
+          term.write("\t Logging in to " + ip + " as " + uservalidation + "\n");
+          var userid =
+            ip.startsWith("10.22.") &
+            (ip.split(".")[2] < 150) &
+            (uservalidation != unknown)
+              ? uservalidation + "@mtnnigeria.net"
+              : uservalidation;
+          var ipparamlogin = /telnet/i.test(urluser)
+            ? "telnet " + ip
+            : "ssh -l " + userid + " " + ip;
+          var aa = 1;
+
+          function wait(ms) {
+            var start = new Date().getTime();
+            var end = start;
+            while (end < start + ms) {
+              end = new Date().getTime();
+            }
+            return end;
+          }
+
+          term.on("key", (key, ev) => {
+            if (ev.ctrlKey === true && ev.keyCode === 86) {
+              term.bindPaste();
+            }
+
+            if (ev.ctrlKey === true && ev.keyCode === 67) {
+              term.copyPaste();
+            }
+          });
+
+          term.on("resize", () => {
+            this.term && this.term.fit();
+          });
+
+          var socket = io();
+          socket.on("connect", function() {
+            term.write("\r\n*** Socket connection esterblished ***\r\n");
+
+            // Browser -> Backend
+            term.on("data", function(data) {
+              socket.emit("data", data);
+              clearInterval(notimeout);
+            });
+
+            notimeout = setInterval(() => {
+              socket.emit("data", " ");
+            }, 60000);
+
+            // Backend -> Browser
+            socket.on("data", data => {
+              term.write(data);
+              //ev.target.dispatchEvent(eventlogin);
+              if (uservalidation != unknown && aa <= 2) {
+                socket.emit("login to node", ipparamlogin + "\n");
+                aa++;
+              }
+
+              if (
+                (data.endsWith("name: ") || data.endsWith("name:")) &&
+                aa <= 4 &&
+                uservalidation != unknown
+              ) {
+                socket.emit("userid", userid + "\n");
+                aa++;
+              }
+              notimeout;
+            });
+
+            //setInterval(term.write(String.fromCharCode(13)),30*1000);
+
+            socket.on("disconnect", function() {
+              term.write("\r\n*** Disconnected from backend***\r\n");
+            });
+            socket.on("error", function() {
+              term.write("\r\n*** Disconnected from backend***\r\n");
+            });
+          });
+
+          sendPs.addEventListener(
+            "click",
+            () => {
+              socket.emit("data", term.getSelection().toString());
+              term.write("");
+            },
+            false
+          );
+
+          sendUser.addEventListener(
+            "click",
+            () => {
+              socket.emit("data", auser.value + "\n");
+              socket.emit("data", apass.value + "\n");
+              term.write("");
+            },
+            false
+          );
+
+          sendEn.addEventListener(
+            "click",
+            () => {
+              socket.emit("data", apass.value + "\n");
+              term.write("");
+            },
+            false
+          );
+        },
+        false
+      );
+    </script>
+    <style>
+      body {
+        font-family: helvetica, sans-serif, arial;
+        font-size: 1em;
+        align-self: center;
+        color: #111;
+      }
+
+      h1 {
+        text-align: center;
+      }
+
+      #terminal-container {
+        width: 98%;
+        height: 98%;
+        scroll-behavior: auto;
+        margin: 0 auto;
+        padding: 2px;
+      }
+
+      #terminal-container .terminal {
+        background-color: #111;
+        color: #fafafa;
+        padding: 2px;
+      }
+
+      #terminal-container .terminal:focus .terminal-cursor {
+        background-color: #fafafa;
+      }
+
+      input {
+        width: fit-content;
+        padding: inherit;
+        font: sans-serif;
+        font-size: 11px;
+      }
+
+      button {
+        width: fit-content;
+        height: fit-content;
+        align-self: top;
+        font-size: 11px;
+      }
+
+      span {
+        position: initial;
+      }
+    </style>
+  </head>
+
+  <body>
+    <span>
+      <input type="text" id="auser" placeholder="node userid" />
+      <input type="password" id="apass" placeholder="password" />
+      <button class="btn-success" id="sendUser">login</button>
+      <button class="btn-success" id="sendEn">Pass</button>
+      <button class="btn-success" id="sendPs">Paste</button>
+    </span>
+    <div id="terminal-container"></div>
+  </body>
+</html>
